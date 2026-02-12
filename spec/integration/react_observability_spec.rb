@@ -80,7 +80,11 @@ RSpec.describe 'ReAct Observability Integration' do
     it 'emits tool observation type for tool calls' do
       logged_events = []
       captured_tracer_attributes = nil
-      tracer_span = instance_double('TracerSpan', set_attribute: nil)
+      set_attribute_calls = []
+      tracer_span = instance_double('TracerSpan')
+      allow(tracer_span).to receive(:set_attribute) do |key, value|
+        set_attribute_calls << [key, value]
+      end
       tracer = double('Tracer')
       allow(DSPy::Observability).to receive(:tracer).and_return(tracer)
       allow(tracer).to receive(:in_span) do |operation, attributes:, kind:, &block|
@@ -137,6 +141,12 @@ RSpec.describe 'ReAct Observability Integration' do
       expect(attributes['tool.input']).to be_a(String)
       expect(attributes).to include('react.iteration')
       expect(captured_tracer_attributes['tool.input']).to be_a(String)
+      expect(captured_tracer_attributes['langfuse.observation.input']).to be_a(String)
+      expect(set_attribute_calls).to include(
+        satisfy do |(key, value)|
+          key == 'langfuse.observation.output' && value.is_a?(String)
+        end
+      )
     end
   end
 end

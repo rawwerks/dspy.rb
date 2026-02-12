@@ -622,10 +622,23 @@ module DSPy
         'dspy.module' => 'ReAct',
         'react.iteration' => iteration,
         'tool.name' => action_str.downcase,
+        'langfuse.observation.input' => serialize_tool_payload(tool_input),
         'tool.input' => tool_input
-      ) do
-        execute_action(action_str, tool_input)
+      ) do |span|
+        result = execute_action(action_str, tool_input)
+        if span
+          span.set_attribute('langfuse.observation.output', serialize_tool_payload(result))
+        end
+        result
       end
+    end
+
+    sig { params(payload: T.untyped).returns(String) }
+    def serialize_tool_payload(payload)
+      serialized = DSPy::TypeSerializer.serialize(payload)
+      JSON.generate(serialized)
+    rescue StandardError
+      payload.to_s
     end
 
     sig { params(step: Integer, thought: String, action: String, tool_input: ToolInput, observation: T.untyped).returns(HistoryEntry) }
