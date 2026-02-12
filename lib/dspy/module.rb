@@ -267,9 +267,18 @@ module DSPy
           'langfuse.observation.input' => serialize_module_input(call_args, call_kwargs),
           'dspy.module' => self.class.name
         )
+        operation_name = "#{self.class.name}.forward"
+
+        if self.class.name == 'DSPy::Predict' && respond_to?(:signature_class)
+          signature_name = signature_class&.name
+          span_attributes['dspy.signature'] = signature_name || 'anonymous'
+          span_attributes['dspy.signature_kind'] = infer_signature_kind(signature_name)
+          span_attributes['dspy.predictor_label'] = module_scope_label if module_scope_label
+          operation_name = "DSPy::Predict(#{signature_name}).forward" if signature_name
+        end
 
         DSPy::Context.with_span(
-          operation: "#{self.class.name}.forward",
+          operation: operation_name,
           **span_attributes
         ) do |span|
           yield.tap do |result|
@@ -303,7 +312,15 @@ module DSPy
       result.to_s
     end
 
-    private :instrument_forward_call, :serialize_module_input, :serialize_module_output
+    def infer_signature_kind(signature_name)
+      return 'custom' unless signature_name
+      return 'thought' if signature_name.match?(/thought/i)
+      return 'observation' if signature_name.match?(/observation/i)
+
+      'custom'
+    end
+
+    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :infer_signature_kind
 
     sig { returns(String) }
     def module_scope_id
