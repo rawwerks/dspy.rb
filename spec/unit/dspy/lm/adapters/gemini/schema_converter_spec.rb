@@ -128,6 +128,11 @@ RSpec.describe DSPy::Gemini::LM::SchemaConverter do
       expect(described_class.supports_structured_outputs?("gemini/gemini-2.5-flash-lite")).to eq(true)
       expect(described_class.supports_structured_outputs?("gemini-2.5-flash-lite")).to eq(true)
     end
+
+    it 'returns true for Gemini 3 flash preview models' do
+      expect(described_class.supports_structured_outputs?("gemini/gemini-3-flash-preview")).to eq(true)
+      expect(described_class.supports_structured_outputs?("gemini-3-flash-preview")).to eq(true)
+    end
     
     it 'returns false for unsupported legacy models' do
       expect(described_class.supports_structured_outputs?("gemini/gemini-1.0-pro")).to eq(false)

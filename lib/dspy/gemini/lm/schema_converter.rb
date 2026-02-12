@@ -11,7 +11,7 @@ module DSPy
 
         # Models that support structured outputs (JSON + Schema)
         # Based on official Google documentation: https://ai.google.dev/gemini-api/docs/models/gemini
-        # Last updated: Oct 2025
+        # Last updated: Feb 2026
         # Note: Gemini 1.5 series deprecated Oct 2025
         STRUCTURED_OUTPUT_MODELS = T.let([
           # Gemini 2.0 series
@@ -21,7 +21,9 @@ module DSPy
           "gemini-2.5-pro",
           "gemini-2.5-flash",
           "gemini-2.5-flash-lite",
-          "gemini-2.5-flash-image"
+          "gemini-2.5-flash-image",
+          # Gemini 3.0 series
+          "gemini-3-flash-preview"
         ].freeze, T::Array[String])
 
         # Models that do not support structured outputs or are deprecated
