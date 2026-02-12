@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'json'
+
 module DSPy
   class Observability
     class << self
@@ -54,6 +56,7 @@ module DSPy
         return nil unless enabled? && tracer
 
         string_attributes = attributes.transform_keys(&:to_s)
+                                     .transform_values { |value| sanitize_attribute_value(value) }
                                      .reject { |_, v| v.nil? }
         string_attributes['operation.name'] = operation_name
 
@@ -104,6 +107,54 @@ module DSPy
 
       def require_dependency(lib)
         require lib
+      end
+
+      def sanitize_attribute_value(value)
+        return value if primitive_value?(value)
+
+        if value.is_a?(Array)
+          return value if homogeneous_primitive_array?(value)
+          return JSON.generate(value.map { |item| normalize_json_value(item) })
+        end
+
+        if value.is_a?(Hash)
+          return JSON.generate(normalize_json_value(value))
+        end
+
+        if value.respond_to?(:to_h)
+          return JSON.generate(normalize_json_value(value.to_h))
+        end
+
+        value.respond_to?(:to_json) ? value.to_json : value.to_s
+      rescue StandardError
+        value.to_s
+      end
+
+      def primitive_value?(value)
+        value.nil? || value.is_a?(String) || value.is_a?(Integer) || value.is_a?(Float) || value.is_a?(TrueClass) || value.is_a?(FalseClass)
+      end
+
+      def homogeneous_primitive_array?(value)
+        return true if value.empty?
+        return false unless value.all? { |item| primitive_value?(item) }
+
+        value.map(&:class).uniq.size == 1
+      end
+
+      def normalize_json_value(value)
+        if primitive_value?(value)
+          value
+        elsif value.is_a?(Array)
+          value.map { |item| normalize_json_value(item) }
+        elsif value.is_a?(Hash)
+          value.each_with_object({}) do |(k, v), acc|
+            acc[k.to_s] = normalize_json_value(v)
+          end
+        elsif value.respond_to?(:to_h)
+          normalize_json_value(value.to_h)
+        else
+          value.to_s
+        end
       end
     end
   end

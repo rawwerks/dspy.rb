@@ -257,7 +257,7 @@ Assumption: no; align with OpenTelemetry context propagation semantics.
 
 - [x] `#216`: Gemini 3 flash preview models are treated as structured-output capable.
 - [x] `#200`: Observability docs include telemetry env vars, defaults, and scenario tuning guidance.
-- [ ] `#222`: No OTEL invalid attribute type errors for ReAct event payloads containing arrays/hashes.
+- [x] `#222`: No OTEL invalid attribute type errors for ReAct event payloads containing arrays/hashes.
 - [ ] `#223`: `react.tool_call` spans include Langfuse preview input/output values.
 - [ ] `#224`: `DSPy::Predict` spans are distinguishable by signature identity without inspecting payloads.
 - [ ] `#205`: Worker-thread spans nest under parent trace when context is propagated via OpenTelemetry APIs.

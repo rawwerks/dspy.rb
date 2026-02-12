@@ -351,6 +351,51 @@ RSpec.describe 'DSPy Event System' do
 
         DSPy.event('test.event', nil)
       end
+
+      it 'serializes arrays of hashes to OTEL-safe strings' do
+        expect(DSPy::Observability).to receive(:start_span).with(
+          'react.iteration_complete',
+          hash_including(
+            'react.observation.results' => a_kind_of(String)
+          )
+        )
+
+        DSPy.event('react.iteration_complete', {
+          react: {
+            observation: {
+              results: [{ score: 0.9 }, { score: 0.8 }]
+            }
+          }
+        })
+      end
+
+      it 'serializes mixed arrays to OTEL-safe strings' do
+        expect(DSPy::Observability).to receive(:start_span).with(
+          'test.event',
+          hash_including(
+            'payload.values' => a_kind_of(String)
+          )
+        )
+
+        DSPy.event('test.event', {
+          payload: {
+            values: [1, 'two', { three: 3 }]
+          }
+        })
+      end
+
+      it 'serializes objects responding to to_h as OTEL-safe strings' do
+        custom_object = Struct.new(:name, :count, keyword_init: true).new(name: 'sample', count: 2)
+
+        expect(DSPy::Observability).to receive(:start_span).with(
+          'test.event',
+          hash_including(
+            'payload' => a_kind_of(String)
+          )
+        )
+
+        DSPy.event('test.event', { payload: custom_object })
+      end
     end
   end
 
