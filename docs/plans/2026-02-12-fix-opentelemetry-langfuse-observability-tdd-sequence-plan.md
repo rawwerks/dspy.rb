@@ -260,7 +260,7 @@ Assumption: no; align with OpenTelemetry context propagation semantics.
 - [x] `#222`: No OTEL invalid attribute type errors for ReAct event payloads containing arrays/hashes.
 - [x] `#223`: `react.tool_call` spans include Langfuse preview input/output values.
 - [x] `#224`: `DSPy::Predict` spans are distinguishable by signature identity without inspecting payloads.
-- [ ] `#205`: Worker-thread spans nest under parent trace when context is propagated via OpenTelemetry APIs.
+- [x] `#205`: Worker-thread spans nest under parent trace when context is propagated via OpenTelemetry APIs.
 
 ### Non-Functional
 

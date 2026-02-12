@@ -16,6 +16,10 @@ end
 
 RSpec.describe DSPy::Module do
   describe '#instrument_forward_call' do
+    before do
+      DSPy.configure { |config| config.lm = nil }
+    end
+
     it 'adds signature identity to predict spans' do
       captured = {}
       predictor = DSPy::Predict.new(ModuleInstrumentationSpecSignature)

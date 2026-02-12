@@ -84,6 +84,12 @@ module DSPy
             
             # Get parent OpenTelemetry span for proper context propagation
             parent_otel_span = current[:otel_span_stack].last
+            if !parent_otel_span && defined?(OpenTelemetry::Trace)
+              current_span = OpenTelemetry::Trace.current_span
+              if current_span && current_span != OpenTelemetry::Trace::Span::INVALID
+                parent_otel_span = current_span
+              end
+            end
             
             # Create span with proper parent context
             if parent_otel_span
