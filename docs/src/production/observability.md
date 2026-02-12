@@ -651,6 +651,66 @@ export LANGFUSE_SECRET_KEY=sk-lf-your-secret-key
 export LANGFUSE_HOST=https://cloud.langfuse.com  # or https://us.cloud.langfuse.com
 ```
 
+### Telemetry Configuration
+
+You can disable or tune async telemetry behavior with environment variables:
+
+```bash
+# Disable observability entirely
+export DSPY_DISABLE_OBSERVABILITY=true
+
+# Async processor tuning
+export DSPY_TELEMETRY_QUEUE_SIZE=1000
+export DSPY_TELEMETRY_EXPORT_INTERVAL=60.0
+export DSPY_TELEMETRY_BATCH_SIZE=100
+export DSPY_TELEMETRY_SHUTDOWN_TIMEOUT=10.0
+```
+
+#### Variable Reference
+
+- `DSPY_DISABLE_OBSERVABILITY`:
+  set to `true` to skip observability initialization and async export.
+- `DSPY_TELEMETRY_QUEUE_SIZE` (default: `1000`):
+  max spans buffered in memory before drops under pressure.
+- `DSPY_TELEMETRY_EXPORT_INTERVAL` (default: `60.0`):
+  timer interval (seconds) for periodic export.
+- `DSPY_TELEMETRY_BATCH_SIZE` (default: `100`):
+  number of spans per export batch and threshold for immediate flush.
+- `DSPY_TELEMETRY_SHUTDOWN_TIMEOUT` (default: `10.0`):
+  max seconds to wait for flush during shutdown.
+
+#### Recommended Presets
+
+- `CLI / short-lived process`:
+  prioritize fast flushing and longer shutdown timeout.
+  ```bash
+  export DSPY_TELEMETRY_QUEUE_SIZE=2000
+  export DSPY_TELEMETRY_EXPORT_INTERVAL=5.0
+  export DSPY_TELEMETRY_BATCH_SIZE=50
+  export DSPY_TELEMETRY_SHUTDOWN_TIMEOUT=30.0
+  ```
+- `Web API`:
+  balanced latency and overhead.
+  ```bash
+  export DSPY_TELEMETRY_QUEUE_SIZE=1000
+  export DSPY_TELEMETRY_EXPORT_INTERVAL=30.0
+  export DSPY_TELEMETRY_BATCH_SIZE=100
+  export DSPY_TELEMETRY_SHUTDOWN_TIMEOUT=10.0
+  ```
+- `Background jobs`:
+  favor throughput and delivery reliability.
+  ```bash
+  export DSPY_TELEMETRY_QUEUE_SIZE=5000
+  export DSPY_TELEMETRY_EXPORT_INTERVAL=60.0
+  export DSPY_TELEMETRY_BATCH_SIZE=500
+  export DSPY_TELEMETRY_SHUTDOWN_TIMEOUT=60.0
+  ```
+- `Development / local`:
+  disable observability to reduce noise.
+  ```bash
+  export DSPY_DISABLE_OBSERVABILITY=true
+  ```
+
 ### How It Works
 
 When Langfuse environment variables are detected, DSPy automatically:
