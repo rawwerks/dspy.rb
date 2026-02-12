@@ -227,6 +227,24 @@ puts result.iterations  # => 3
 puts result.tools_used  # => ["weather", "search"]
 ```
 
+### Handling Max Iterations with Structured Context
+
+```ruby
+begin
+  result = agent.call(destination: "Tokyo, Japan", interests: ["food", "temples"])
+rescue DSPy::ReAct::MaxIterationsError => error
+  puts error.message
+  puts error.iterations        # => 5
+  puts error.max_iterations    # => 5
+  puts error.tools_used        # => ["weather", "search"]
+  puts error.last_observation  # => last observed tool output (or nil)
+
+  # Use structured history for best-effort fallback synthesis
+  summary = error.history.map { |entry| "#{entry[:step]}:#{entry[:action]}" }.join(", ")
+  puts "Partial evidence: #{summary}"
+end
+```
+
 ### Custom Tool Integration
 
 ```ruby

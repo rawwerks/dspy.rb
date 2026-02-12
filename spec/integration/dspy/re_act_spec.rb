@@ -781,6 +781,38 @@ RSpec.describe DSPy::ReAct do
           agent.forward(query: "Find the answer to life")
         }.to raise_error(DSPy::ReAct::MaxIterationsError, /reached maximum iterations.*\(1\)/i)
       end
+
+      it 'includes structured context on MaxIterationsError for recovery flows' do
+        allow_any_instance_of(DSPy::Predict).to receive(:forward).and_return(
+          double(
+            thought: "I'll use the tool again",
+            action: 'useless_tool',
+            tool_input: {},
+            final_answer: nil,
+            next_step: DSPy::NextStep::Continue,
+            interpretation: "Got a result, continuing"
+          )
+        )
+
+        expect {
+          agent.forward(query: "Find the answer to life")
+        }.to raise_error(DSPy::ReAct::MaxIterationsError) { |error|
+          expect(error.iterations).to eq(1)
+          expect(error.max_iterations).to eq(1)
+          expect(error.tools_used).to eq(['useless_tool'])
+          expect(error.history).to be_an(Array)
+          expect(error.history.length).to eq(1)
+          expect(error.history.first).to include(
+            step: 1,
+            thought: "I'll use the tool again",
+            action: 'useless_tool',
+            tool_input: {},
+            observation: "This doesn't help"
+          )
+          expect(error.last_observation).to eq("This doesn't help")
+          expect(error.partial_final_answer).to be_nil
+        }
+      end
     end
 
     describe 'invalid action errors' do

@@ -47,7 +47,56 @@ module DSPy
     include Mixins::StructBuilder
 
     # Custom error classes
-    class MaxIterationsError < StandardError; end
+    class MaxIterationsError < StandardError
+      extend T::Sig
+
+      sig { returns(T.nilable(Integer)) }
+      attr_reader :iterations
+
+      sig { returns(T.nilable(Integer)) }
+      attr_reader :max_iterations
+
+      sig { returns(T::Array[String]) }
+      attr_reader :tools_used
+
+      sig { returns(T::Array[T::Hash[Symbol, T.untyped]]) }
+      attr_reader :history
+
+      sig { returns(T.untyped) }
+      attr_reader :last_observation
+
+      sig { returns(T.untyped) }
+      attr_reader :partial_final_answer
+
+      sig do
+        params(
+          message: String,
+          iterations: T.nilable(Integer),
+          max_iterations: T.nilable(Integer),
+          tools_used: T::Array[String],
+          history: T::Array[T::Hash[Symbol, T.untyped]],
+          last_observation: T.untyped,
+          partial_final_answer: T.untyped
+        ).void
+      end
+      def initialize(
+        message = "Agent reached maximum iterations without producing a final answer",
+        iterations: nil,
+        max_iterations: nil,
+        tools_used: [],
+        history: [],
+        last_observation: nil,
+        partial_final_answer: nil
+      )
+        @iterations = T.let(iterations, T.nilable(Integer))
+        @max_iterations = T.let(max_iterations, T.nilable(Integer))
+        @tools_used = T.let(tools_used, T::Array[String])
+        @history = T.let(history, T::Array[T::Hash[Symbol, T.untyped]])
+        @last_observation = last_observation
+        @partial_final_answer = partial_final_answer
+        super(message)
+      end
+    end
     class InvalidActionError < StandardError; end
     class TypeMismatchError < StandardError; end
 
@@ -463,7 +512,8 @@ module DSPy
       if final_answer.nil?
         iterations = reasoning_result[:iterations]
         tools_used = reasoning_result[:tools_used]
-        raise MaxIterationsError, "Agent reached maximum iterations (#{iterations}) without producing a final answer. Tools used: #{tools_used.join(', ')}"
+        history = T.cast(reasoning_result[:history], T::Array[HistoryEntry])
+        raise build_max_iterations_error(iterations: iterations, tools_used: tools_used, history: history)
       end
 
       output_data = input_kwargs.merge({
@@ -487,6 +537,19 @@ module DSPy
     sig { params(history: T::Array[HistoryEntry]).returns(T.untyped) }
     def find_last_tool_observation(history)
       history.reverse.find { |entry| !entry.observation.nil? }&.observation
+    end
+
+    sig { params(iterations: Integer, tools_used: T::Array[String], history: T::Array[HistoryEntry], partial_final_answer: T.untyped).returns(MaxIterationsError) }
+    def build_max_iterations_error(iterations:, tools_used:, history:, partial_final_answer: nil)
+      MaxIterationsError.new(
+        "Agent reached maximum iterations (#{iterations}) without producing a final answer. Tools used: #{tools_used.join(', ')}",
+        iterations: iterations,
+        max_iterations: @max_iterations,
+        tools_used: tools_used.uniq,
+        history: history.map(&:to_h),
+        last_observation: find_last_tool_observation(history),
+        partial_final_answer: partial_final_answer
+      )
     end
 
     # Deserialize final answer to match expected output type
