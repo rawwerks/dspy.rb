@@ -261,10 +261,14 @@ module DSPy
     def instrument_forward_call(call_args, call_kwargs)
       ensure_module_subscriptions!
 
+      input_json = serialize_module_input(call_args, call_kwargs)
+      root_call = DSPy::Context.current[:span_stack].empty?
+      emit_trace_init_span(call_args, call_kwargs, input_json) if root_call
+
       DSPy::Context.with_module(self) do
         observation_type = DSPy::ObservationType.for_module_class(self.class)
         span_attributes = observation_type.langfuse_attributes.merge(
-          'langfuse.observation.input' => serialize_module_input(call_args, call_kwargs),
+          'langfuse.observation.input' => input_json,
           'dspy.module' => self.class.name
         )
         operation_name = "#{self.class.name}.forward"
@@ -351,6 +355,26 @@ module DSPy
       "#{error.class}: #{error.message}"
     end
 
+    def emit_trace_init_span(call_args, call_kwargs, input_json)
+      metadata = {
+        module: self.class.name,
+        signature: (respond_to?(:signature_class) ? signature_class&.name : nil),
+        signature_kind: (respond_to?(:signature_class) ? infer_signature_kind(signature_class&.name) : nil),
+        predictor_label: module_scope_label
+      }.compact
+
+      DSPy::Context.with_span(
+        operation: 'dspy.trace.init',
+        **DSPy::ObservationType::Span.langfuse_attributes,
+        'langfuse.trace.name' => "#{self.class.name}.forward",
+        'langfuse.trace.input' => input_json,
+        'langfuse.trace.metadata' => JSON.generate(metadata),
+        'langfuse.trace.output' => '{"status":"in_progress"}'
+      ) {}
+    rescue StandardError
+      nil
+    end
+
     def infer_signature_kind(signature_name)
       return 'custom' unless signature_name
       return 'thought' if signature_name.match?(/thought/i)
@@ -359,7 +383,7 @@ module DSPy
       'custom'
     end
 
-    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :serialize_module_error_output, :infer_signature_kind
+    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :serialize_module_error_output, :emit_trace_init_span, :infer_signature_kind
 
     sig { returns(String) }
     def module_scope_id

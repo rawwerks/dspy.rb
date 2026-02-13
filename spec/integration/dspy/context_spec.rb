@@ -231,6 +231,29 @@ RSpec.describe DSPy::Context do
         described_class.with_span(operation: 'test.operation', custom_attr: 'value') { }
       end
 
+      it 'emits trace-level attributes when provided' do
+        expect(mock_tracer).to receive(:in_span).with(
+          'trace.init',
+          {
+            attributes: hash_including(
+              'langfuse.trace.name' => 'DSPy::Predict.forward',
+              'langfuse.trace.input' => '{"query":"x"}',
+              'langfuse.trace.output' => '{"status":"in_progress"}'
+            ),
+            kind: :internal
+          }
+        ).and_yield(mock_span)
+
+        allow(mock_span).to receive(:set_attribute)
+
+        described_class.with_span(
+          operation: 'trace.init',
+          'langfuse.trace.name' => 'DSPy::Predict.forward',
+          'langfuse.trace.input' => '{"query":"x"}',
+          'langfuse.trace.output' => '{"status":"in_progress"}'
+        ) { }
+      end
+
       it 'handles exceptions in tracer.in_span' do
         expect(mock_tracer).to receive(:in_span).with(
           'failing',
