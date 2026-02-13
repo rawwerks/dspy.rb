@@ -374,6 +374,8 @@ module DSPy
         signature_kind: (respond_to?(:signature_class) ? infer_signature_kind(signature_class&.name) : nil),
         predictor_label: module_scope_label
       }.compact
+      conversation_id, conversation_id_source = resolve_conversation_id(call_args, call_kwargs)
+      metadata[:conversation_id_source] = conversation_id_source if conversation_id_source
 
       DSPy::Context.with_span(
         operation: 'dspy.trace.init',
@@ -381,10 +383,45 @@ module DSPy
         'langfuse.trace.name' => "#{self.class.name}.forward",
         'langfuse.trace.input' => input_json,
         'langfuse.trace.metadata' => JSON.generate(metadata),
-        'langfuse.trace.output' => '{"status":"in_progress"}'
+        'langfuse.trace.output' => '{"status":"in_progress"}',
+        'conversation_id' => conversation_id,
+        'dspy.conversation_id' => conversation_id
       ) {}
     rescue StandardError
       nil
+    end
+
+    # Conversation ID precedence is deterministic:
+    # 1. top-level kwargs[:conversation_id]
+    # 2. first positional hash arg[:conversation_id]
+    # 3. kwargs[:input_context][:conversation_id]
+    # 4. DSPy::Context.current[:conversation_id]
+    def resolve_conversation_id(call_args, call_kwargs)
+      direct = fetch_hash_value(call_kwargs, :conversation_id)
+      return [direct.to_s, 'kwargs.conversation_id'] if present_value?(direct)
+
+      first_arg = call_args.first if call_args.is_a?(Array) && call_args.first.is_a?(Hash)
+      arg_value = fetch_hash_value(first_arg, :conversation_id)
+      return [arg_value.to_s, 'args[0].conversation_id'] if present_value?(arg_value)
+
+      input_context = fetch_hash_value(call_kwargs, :input_context)
+      nested = fetch_hash_value(input_context, :conversation_id)
+      return [nested.to_s, 'kwargs.input_context.conversation_id'] if present_value?(nested)
+
+      context_value = fetch_hash_value(DSPy::Context.current, :conversation_id)
+      return [context_value.to_s, 'context.conversation_id'] if present_value?(context_value)
+
+      [nil, nil]
+    end
+
+    def fetch_hash_value(hash, key)
+      return nil unless hash.is_a?(Hash)
+
+      hash[key] || hash[key.to_s]
+    end
+
+    def present_value?(value)
+      !value.nil? && !(value.respond_to?(:empty?) && value.empty?)
     end
 
     def infer_signature_kind(signature_name)
@@ -395,7 +432,7 @@ module DSPy
       'custom'
     end
 
-    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :serialize_module_error_output, :emit_trace_init_span, :infer_signature_kind
+    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :serialize_module_error_output, :emit_trace_init_span, :resolve_conversation_id, :fetch_hash_value, :present_value?, :infer_signature_kind
 
     sig { returns(String) }
     def module_scope_id

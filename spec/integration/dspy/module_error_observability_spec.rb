@@ -16,6 +16,8 @@ RSpec.describe 'Module error observability instrumentation' do
   before do
     allow(DSPy::Observability).to receive(:enabled?).and_return(true)
     allow(DSPy::Observability).to receive(:tracer).and_return(mock_tracer)
+    allow(DSPy::Observability).to receive(:start_span).and_return(nil)
+    allow(DSPy::Observability).to receive(:finish_span)
     allow(mock_tracer).to receive(:in_span).and_yield(mock_span)
     allow(mock_span).to receive(:set_attribute)
     DSPy::Context.clear!
@@ -31,16 +33,16 @@ RSpec.describe 'Module error observability instrumentation' do
           'langfuse.trace.output' => '{"status":"in_progress"}'
         )
       )
-    ).and_yield(mock_span).ordered
+    ).and_yield(mock_span)
 
     expect(mock_tracer).to receive(:in_span).with(
       'FailingModuleForObservability.forward',
       hash_including(attributes: hash_including('dspy.module' => 'FailingModuleForObservability'))
-    ).and_yield(mock_span).ordered
+    ).and_yield(mock_span)
 
     expect(mock_span).to receive(:set_attribute).with(
       'langfuse.observation.output',
-      include('\"error\"')
+      include('"error"')
     )
     expect(mock_span).to receive(:set_attribute).with('langfuse.observation.status', 'error')
     expect(mock_span).to receive(:set_attribute).with('dspy.error.class', 'RuntimeError')
@@ -48,7 +50,7 @@ RSpec.describe 'Module error observability instrumentation' do
     expect(mock_span).to receive(:set_attribute).with('dspy.status', 'error')
     expect(mock_span).to receive(:set_attribute).with(
       'langfuse.trace.output',
-      include('\"error\"')
+      include('"error"')
     )
     expect(mock_span).to receive(:set_attribute).with('langfuse.trace.status', 'error')
 

@@ -74,8 +74,9 @@ module DSPy
             # Prepare attributes and add trace name for root spans
             span_attributes = sanitized_attributes.transform_keys(&:to_s).reject { |k, v| v.nil? }
             
-            # Set trace name if this is likely a root span (no parent in our stack)
-            if current[:span_stack].length == 1  # This will be the first span
+            # Set trace name if this is likely a root span (no parent in our stack),
+            # unless callers already specified one explicitly.
+            if current[:span_stack].length == 1 && !span_attributes.key?('langfuse.trace.name')
               span_attributes['langfuse.trace.name'] = operation
             end
             
