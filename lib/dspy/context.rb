@@ -105,17 +105,12 @@ module DSPy
                   
                   begin
                     result = yield(span)
-                    
-                    # Add explicit timing information to help Langfuse
-                    if span
-                      duration_ms = ((Time.now - otel_start_time) * 1000).round(3)
-                      span.set_attribute('duration.ms', duration_ms)
-                      span.set_attribute('langfuse.observation.startTime', otel_start_time.iso8601(3))
-                      span.set_attribute('langfuse.observation.endTime', Time.now.iso8601(3))
-                    end
-                    
                     result
+                  rescue StandardError => e
+                    set_span_error_attributes(span, e)
+                    raise
                   ensure
+                    set_span_timing_attributes(span, otel_start_time)
                     # Remove from our OpenTelemetry span stack
                     current[:otel_span_stack].pop
                   end
@@ -133,17 +128,12 @@ module DSPy
                 
                 begin
                   result = yield(span)
-                  
-                  # Add explicit timing information to help Langfuse
-                  if span
-                    duration_ms = ((Time.now - otel_start_time) * 1000).round(3)
-                    span.set_attribute('duration.ms', duration_ms)
-                    span.set_attribute('langfuse.observation.startTime', otel_start_time.iso8601(3))
-                    span.set_attribute('langfuse.observation.endTime', Time.now.iso8601(3))
-                  end
-                  
                   result
+                rescue StandardError => e
+                  set_span_error_attributes(span, e)
+                  raise
                 ensure
+                  set_span_timing_attributes(span, otel_start_time)
                   # Remove from our OpenTelemetry span stack
                   current[:otel_span_stack].pop
                 end
@@ -301,6 +291,28 @@ module DSPy
           class: module_instance.class.name,
           label: explicit_label || (module_instance.respond_to?(:module_scope_label) ? module_instance.module_scope_label : nil)
         }
+      end
+
+      def set_span_timing_attributes(span, otel_start_time)
+        return unless span
+
+        now = Time.now
+        duration_ms = ((now - otel_start_time) * 1000).round(3)
+        span.set_attribute('duration.ms', duration_ms)
+        span.set_attribute('langfuse.observation.startTime', otel_start_time.iso8601(3))
+        span.set_attribute('langfuse.observation.endTime', now.iso8601(3))
+      rescue StandardError
+        nil
+      end
+
+      def set_span_error_attributes(span, error)
+        return unless span
+
+        span.set_attribute('error', true)
+        span.set_attribute('error.type', error.class.name)
+        span.set_attribute('error.message', error.message.to_s[0, 2000]) if error.message
+      rescue StandardError
+        nil
       end
     end
   end

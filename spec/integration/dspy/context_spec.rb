@@ -240,6 +240,13 @@ RSpec.describe DSPy::Context do
           }
         ).and_yield(mock_span)
 
+        expect(mock_span).to receive(:set_attribute).with('error', true)
+        expect(mock_span).to receive(:set_attribute).with('error.type', 'RuntimeError')
+        expect(mock_span).to receive(:set_attribute).with('error.message', 'test error')
+        expect(mock_span).to receive(:set_attribute).with('duration.ms', anything)
+        expect(mock_span).to receive(:set_attribute).with('langfuse.observation.startTime', anything)
+        expect(mock_span).to receive(:set_attribute).with('langfuse.observation.endTime', anything)
+
         expect do
           described_class.with_span(operation: 'failing') do
             raise 'test error'

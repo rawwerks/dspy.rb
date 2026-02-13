@@ -281,10 +281,28 @@ module DSPy
           operation: operation_name,
           **span_attributes
         ) do |span|
-          yield.tap do |result|
-            if span && result
-              span.set_attribute('langfuse.observation.output', serialize_module_output(result))
+          begin
+            yield.tap do |result|
+              if span && !result.nil?
+                span.set_attribute('langfuse.observation.output', serialize_module_output(result))
+              end
             end
+          rescue StandardError => e
+            if span
+              span.set_attribute('langfuse.observation.output', serialize_module_error_output(e))
+              span.set_attribute('dspy.error.class', e.class.name)
+              span.set_attribute('dspy.error.message', e.message.to_s[0, 2000]) if e.message
+              if e.respond_to?(:iterations)
+                span.set_attribute('dspy.error.iterations', e.iterations.to_i) unless e.iterations.nil?
+              end
+              if e.respond_to?(:max_iterations)
+                span.set_attribute('dspy.error.max_iterations', e.max_iterations.to_i) unless e.max_iterations.nil?
+              end
+              if e.respond_to?(:tools_used)
+                span.set_attribute('dspy.error.tools_used', Array(e.tools_used).map(&:to_s))
+              end
+            end
+            raise
           end
         end
       end
@@ -312,6 +330,27 @@ module DSPy
       result.to_s
     end
 
+    def serialize_module_error_output(error)
+      payload = {
+        error: {
+          class: error.class.name,
+          message: error.message.to_s
+        }
+      }
+
+      if error.respond_to?(:iterations) || error.respond_to?(:max_iterations) || error.respond_to?(:tools_used)
+        payload[:react] = {}
+        payload[:react][:iterations] = error.iterations if error.respond_to?(:iterations)
+        payload[:react][:max_iterations] = error.max_iterations if error.respond_to?(:max_iterations)
+        payload[:react][:tools_used] = Array(error.tools_used) if error.respond_to?(:tools_used)
+      end
+
+      serialized = DSPy::TypeSerializer.serialize(payload)
+      JSON.generate(serialized)
+    rescue StandardError
+      "#{error.class}: #{error.message}"
+    end
+
     def infer_signature_kind(signature_name)
       return 'custom' unless signature_name
       return 'thought' if signature_name.match?(/thought/i)
@@ -320,7 +359,7 @@ module DSPy
       'custom'
     end
 
-    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :infer_signature_kind
+    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :serialize_module_error_output, :infer_signature_kind
 
     sig { returns(String) }
     def module_scope_id
