@@ -61,20 +61,17 @@ RSpec.describe "Span Nesting in DSPy::Predict" do
     predictor = DSPy::Predict.new(signature_class)
     predictor.call(query: "test query")
     
-    # Verify we captured root init + predict + llm spans
-    expect(captured_context_calls.length).to eq(3)
+    # Verify we captured predict + llm spans (no synthetic trace-init span)
+    expect(captured_context_calls.length).to eq(2)
     
     # Find the spans
-    trace_init_span = captured_context_calls.find { |s| s[:operation] == "dspy.trace.init" }
     predict_span = captured_context_calls.find { |s| s[:operation] == "DSPy::Predict.forward" }
     llm_span = captured_context_calls.find { |s| s[:operation] == "llm.generate" }
-    
-    expect(trace_init_span).not_to be_nil, "Should have dspy.trace.init span"
+
     expect(predict_span).not_to be_nil, "Should have DSPy::Predict.forward span"
     expect(llm_span).not_to be_nil, "Should have llm.generate span"
     
     # The critical test: all spans should share the same trace ID (proper nesting)
-    expect(trace_init_span[:context_trace_id]).to eq(predict_span[:context_trace_id])
     expect(llm_span[:context_trace_id]).to eq(predict_span[:context_trace_id]), 
       "llm.generate should share the same trace ID as DSPy::Predict.forward for proper nesting"
     

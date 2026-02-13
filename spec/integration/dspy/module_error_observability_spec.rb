@@ -25,19 +25,15 @@ RSpec.describe 'Module error observability instrumentation' do
 
   it 'sets output and error attributes on span when module forward raises' do
     expect(mock_tracer).to receive(:in_span).with(
-      'dspy.trace.init',
+      'FailingModuleForObservability.forward',
       hash_including(
         attributes: hash_including(
+          'dspy.module' => 'FailingModuleForObservability',
           'langfuse.trace.name' => 'FailingModuleForObservability.forward',
           'langfuse.trace.input' => anything,
           'langfuse.trace.output' => '{"status":"in_progress"}'
         )
       )
-    ).and_yield(mock_span)
-
-    expect(mock_tracer).to receive(:in_span).with(
-      'FailingModuleForObservability.forward',
-      hash_including(attributes: hash_including('dspy.module' => 'FailingModuleForObservability'))
     ).and_yield(mock_span)
 
     expect(mock_span).to receive(:set_attribute).with(

@@ -63,7 +63,7 @@ RSpec.describe DSPy::Module do
       expect(captured[:attrs]).not_to have_key('dspy.signature_kind')
     end
 
-    it 'adds conversation_id to root trace init from kwargs when present' do
+    it 'adds conversation_id to root forward span from kwargs when present' do
       captured_spans = []
       predictor = DSPy::Predict.new(ModuleInstrumentationSpecSignature)
 
@@ -75,13 +75,14 @@ RSpec.describe DSPy::Module do
 
       predictor.send(:instrument_forward_call, [], { question: 'hi', conversation_id: 'conv-123' }) { 'ok' }
 
-      trace_init = captured_spans.find { |span| span[:operation] == 'dspy.trace.init' }
-      expect(trace_init).not_to be_nil
-      expect(trace_init[:attrs]).to include('conversation_id' => 'conv-123')
-      expect(trace_init[:attrs]).to include('dspy.conversation_id' => 'conv-123')
+      forward_span = captured_spans.find { |span| span[:operation] == "DSPy::Predict(#{ModuleInstrumentationSpecSignature.name}).forward" }
+      expect(forward_span).not_to be_nil
+      expect(forward_span[:attrs]).to include('conversation_id' => 'conv-123')
+      expect(forward_span[:attrs]).to include('dspy.conversation_id' => 'conv-123')
 
-      metadata = JSON.parse(trace_init[:attrs]['langfuse.trace.metadata'])
+      metadata = JSON.parse(forward_span[:attrs]['langfuse.trace.metadata'])
       expect(metadata['conversation_id_source']).to eq('kwargs.conversation_id')
+      expect(captured_spans.map { |span| span[:operation] }).not_to include('dspy.trace.init')
     end
 
     it 'falls back to context conversation_id when kwargs do not include one' do
@@ -98,12 +99,13 @@ RSpec.describe DSPy::Module do
 
       predictor.send(:instrument_forward_call, [], { question: 'hi' }) { 'ok' }
 
-      trace_init = captured_spans.find { |span| span[:operation] == 'dspy.trace.init' }
-      expect(trace_init).not_to be_nil
-      expect(trace_init[:attrs]).to include('conversation_id' => 'ctx-987')
+      forward_span = captured_spans.find { |span| span[:operation] == "DSPy::Predict(#{ModuleInstrumentationSpecSignature.name}).forward" }
+      expect(forward_span).not_to be_nil
+      expect(forward_span[:attrs]).to include('conversation_id' => 'ctx-987')
 
-      metadata = JSON.parse(trace_init[:attrs]['langfuse.trace.metadata'])
+      metadata = JSON.parse(forward_span[:attrs]['langfuse.trace.metadata'])
       expect(metadata['conversation_id_source']).to eq('context.conversation_id')
+      expect(captured_spans.map { |span| span[:operation] }).not_to include('dspy.trace.init')
     end
 
     it 'serializes react max-iterations error details into trace output payload' do

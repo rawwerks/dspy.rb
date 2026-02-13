@@ -263,7 +263,6 @@ module DSPy
 
       input_json = serialize_module_input(call_args, call_kwargs)
       root_call = DSPy::Context.current[:span_stack].empty?
-      emit_trace_init_span(call_args, call_kwargs, input_json) if root_call
 
       DSPy::Context.with_module(self) do
         observation_type = DSPy::ObservationType.for_module_class(self.class)
@@ -272,6 +271,7 @@ module DSPy
           'dspy.module' => self.class.name
         )
         operation_name = "#{self.class.name}.forward"
+        span_attributes.merge!(root_trace_attributes(call_args, call_kwargs, input_json)) if root_call
 
         if self.class.name == 'DSPy::Predict' && respond_to?(:signature_class)
           signature_name = signature_class&.name
@@ -367,7 +367,7 @@ module DSPy
       "#{error.class}: #{error.message}"
     end
 
-    def emit_trace_init_span(call_args, call_kwargs, input_json)
+    def root_trace_attributes(call_args, call_kwargs, input_json)
       metadata = {
         module: self.class.name,
         signature: (respond_to?(:signature_class) ? signature_class&.name : nil),
@@ -377,18 +377,16 @@ module DSPy
       conversation_id, conversation_id_source = resolve_conversation_id(call_args, call_kwargs)
       metadata[:conversation_id_source] = conversation_id_source if conversation_id_source
 
-      DSPy::Context.with_span(
-        operation: 'dspy.trace.init',
-        **DSPy::ObservationType::Span.langfuse_attributes,
+      {
         'langfuse.trace.name' => "#{self.class.name}.forward",
         'langfuse.trace.input' => input_json,
         'langfuse.trace.metadata' => JSON.generate(metadata),
         'langfuse.trace.output' => '{"status":"in_progress"}',
         'conversation_id' => conversation_id,
         'dspy.conversation_id' => conversation_id
-      ) {}
+      }
     rescue StandardError
-      nil
+      {}
     end
 
     # Conversation ID precedence is deterministic:
@@ -432,7 +430,7 @@ module DSPy
       'custom'
     end
 
-    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :serialize_module_error_output, :emit_trace_init_span, :resolve_conversation_id, :fetch_hash_value, :present_value?, :infer_signature_kind
+    private :instrument_forward_call, :serialize_module_input, :serialize_module_output, :serialize_module_error_output, :root_trace_attributes, :resolve_conversation_id, :fetch_hash_value, :present_value?, :infer_signature_kind
 
     sig { returns(String) }
     def module_scope_id
