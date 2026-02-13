@@ -441,7 +441,7 @@ module DSPy
         if finish_action?(thought_obj.action)
           final_answer = handle_finish_action(
             thought_obj.final_answer, last_observation, iteration,
-            thought_obj.thought, thought_obj.action, history
+            thought_obj.thought, thought_obj.action, history, expected_output_field_type
           )
           return { should_finish: true, final_answer: final_answer }
         end
@@ -465,7 +465,7 @@ module DSPy
 
         # Process observation and decide next step
         observation_decision = process_observation_and_decide_next_step(
-          input_struct, history, observation, available_tools_desc, iteration
+          input_struct, history, observation, available_tools_desc, iteration, tools_used
         )
 
         if observation_decision[:should_finish]
@@ -595,6 +595,12 @@ module DSPy
         return last_tool_observation
       end
 
+      # Structured outputs frequently arrive as JSON strings; parse before coercion.
+      if final_answer.is_a?(String)
+        parsed = parse_json_string(final_answer)
+        final_answer = parsed unless parsed.nil?
+      end
+
       # If final_answer already matches, use it
       return final_answer if type_matches?(final_answer, output_field_type)
 
@@ -635,7 +641,11 @@ module DSPy
     def type_matches?(value, type_object)
       case type_object
       when T::Types::TypedArray
-        value.is_a?(Array) && (value.empty? || value.first.is_a?(T::Struct))
+        return false unless value.is_a?(Array)
+        return true if value.empty?
+
+        element_type = type_object.type
+        value.all? { |item| type_matches?(item, element_type) }
       when T::Types::TypedHash
         value.is_a?(Hash)
       when T::Types::Simple
@@ -715,8 +725,8 @@ module DSPy
       )
     end
 
-    sig { params(input_struct: T.untyped, history: T::Array[HistoryEntry], observation: T.untyped, available_tools_desc: T::Array[AvailableTool], iteration: Integer).returns(T::Hash[Symbol, T.untyped]) }
-    def process_observation_and_decide_next_step(input_struct, history, observation, available_tools_desc, iteration)
+    sig { params(input_struct: T.untyped, history: T::Array[HistoryEntry], observation: T.untyped, available_tools_desc: T::Array[AvailableTool], iteration: Integer, tools_used: T::Array[String]).returns(T::Hash[Symbol, T.untyped]) }
+    def process_observation_and_decide_next_step(input_struct, history, observation, available_tools_desc, iteration, tools_used)
       observation_result = @observation_processor.forward(
         input_context: format_input_context(input_struct),
         history: format_history(history),
@@ -726,14 +736,14 @@ module DSPy
       return { should_finish: false } unless observation_result.next_step == NextStep::Finish
 
       final_answer = generate_forced_final_answer(
-        input_struct, history, available_tools_desc, observation_result, iteration
+        input_struct, history, available_tools_desc, observation_result, iteration, tools_used
       )
 
       { should_finish: true, final_answer: final_answer }
     end
 
-    sig { params(input_struct: T.untyped, history: T::Array[HistoryEntry], available_tools_desc: T::Array[AvailableTool], observation_result: T.untyped, iteration: Integer).returns(T.untyped) }
-    def generate_forced_final_answer(input_struct, history, available_tools_desc, observation_result, iteration)
+    sig { params(input_struct: T.untyped, history: T::Array[HistoryEntry], available_tools_desc: T::Array[AvailableTool], observation_result: T.untyped, iteration: Integer, tools_used: T::Array[String]).returns(T.untyped) }
+    def generate_forced_final_answer(input_struct, history, available_tools_desc, observation_result, iteration, tools_used)
       final_thought = @thought_generator.forward(
         input_context: format_input_context(input_struct),
         history: format_history(history),
@@ -741,6 +751,8 @@ module DSPy
       )
 
       action_str = final_thought.action.respond_to?(:serialize) ? final_thought.action.serialize : final_thought.action.to_s
+      output_field_type = expected_output_field_type
+
       if action_str.downcase != FINISH_ACTION
         # Use interpretation if available, otherwise use last observation
         forced_answer = if observation_result.interpretation && !observation_result.interpretation.empty?
@@ -750,9 +762,23 @@ module DSPy
                         else
                           raise MaxIterationsError, "Observation processor indicated finish but no answer is available"
                         end
-        handle_finish_action(forced_answer, history.last&.observation, iteration + 1, final_thought.thought, FINISH_ACTION, history)
+
+        if structured_type?(output_field_type)
+          coerced_forced_answer = coerce_candidate_for_output(forced_answer, output_field_type)
+          if coerced_forced_answer.nil?
+            raise build_max_iterations_error(
+              iterations: iteration,
+              tools_used: tools_used,
+              history: history,
+              partial_final_answer: forced_answer
+            )
+          end
+          handle_finish_action(coerced_forced_answer, history.last&.observation, iteration + 1, final_thought.thought, FINISH_ACTION, history, output_field_type)
+        else
+          handle_finish_action(forced_answer, history.last&.observation, iteration + 1, final_thought.thought, FINISH_ACTION, history, output_field_type)
+        end
       else
-        handle_finish_action(final_thought.final_answer, history.last&.observation, iteration + 1, final_thought.thought, final_thought.action, history)
+        handle_finish_action(final_thought.final_answer, history.last&.observation, iteration + 1, final_thought.thought, final_thought.action, history, output_field_type)
       end
     end
 
@@ -814,13 +840,14 @@ module DSPy
       example
     end
 
-    sig { params(final_answer_value: T.untyped, last_observation: T.untyped, step: Integer, thought: String, action: T.any(String, T::Enum), history: T::Array[HistoryEntry]).returns(T.untyped) }
-    def handle_finish_action(final_answer_value, last_observation, step, thought, action, history)
+    sig { params(final_answer_value: T.untyped, last_observation: T.untyped, step: Integer, thought: String, action: T.any(String, T::Enum), history: T::Array[HistoryEntry], output_field_type: T.untyped).returns(T.untyped) }
+    def handle_finish_action(final_answer_value, last_observation, step, thought, action, history, output_field_type)
       final_answer = final_answer_value
 
       # If final_answer is empty/nil but we have a last observation, use it
       if (final_answer.nil? || (final_answer.is_a?(String) && final_answer.empty?)) && last_observation
-        final_answer = last_observation
+        fallback_value = coerce_candidate_for_output(last_observation, output_field_type)
+        final_answer = fallback_value unless fallback_value.nil?
       end
 
       # Convert action enum to string for storage in history
@@ -836,6 +863,38 @@ module DSPy
       )
 
       final_answer
+    end
+
+    sig { returns(T.untyped) }
+    def expected_output_field_type
+      output_field_name = @original_signature_class.output_struct_class.props.keys.first
+      @original_signature_class.output_struct_class.props[output_field_name][:type_object]
+    end
+
+    sig { params(value: T.untyped, output_field_type: T.untyped).returns(T.untyped) }
+    def coerce_candidate_for_output(value, output_field_type)
+      return value if type_matches?(value, output_field_type)
+
+      candidate = value
+      if candidate.is_a?(String) && structured_type?(output_field_type)
+        parsed = parse_json_string(candidate)
+        candidate = parsed unless parsed.nil?
+      end
+
+      return candidate if type_matches?(candidate, output_field_type)
+
+      converted = convert_to_expected_type(candidate, output_field_type)
+      return converted if type_matches?(converted, output_field_type)
+
+      nil
+    end
+
+    sig { params(value: String).returns(T.nilable(T.untyped)) }
+    def parse_json_string(value)
+      parsed = JSON.parse(value)
+      parsed
+    rescue JSON::ParserError
+      nil
     end
   end
 end

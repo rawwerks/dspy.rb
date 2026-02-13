@@ -923,6 +923,134 @@ RSpec.describe DSPy::ReAct do
         }.to raise_error(DSPy::ReAct::TypeMismatchError, /cannot convert.*String.*Integer/i)
       end
     end
+
+    describe 'forced finish with structured output' do
+      class ForcedCompletion < T::Struct
+        const :answer, String
+      end
+
+      class ForcedStructuredSignature < DSPy::Signature
+        description "Structured output signature for forced-finish regression tests"
+
+        input do
+          const :query, String
+        end
+
+        output do
+          const :result, ForcedCompletion
+        end
+      end
+
+      class EchoObservationTool < DSPy::Tools::Base
+        tool_name 'echo_observation_tool'
+        tool_description "Returns a fixed string observation"
+
+        sig { returns(String) }
+        def call
+          "tool observation"
+        end
+      end
+
+      let(:tools) { [EchoObservationTool.new] }
+      let(:agent) { DSPy::ReAct.new(ForcedStructuredSignature, tools: tools, max_iterations: 3) }
+
+      it 'raises MaxIterationsError (not TypeMismatchError) when forced-finish interpretation is not coercible' do
+        allow_any_instance_of(DSPy::Predict).to receive(:forward).and_return(
+          double(
+            thought: "Use tool",
+            action: 'echo_observation_tool',
+            tool_input: {},
+            final_answer: nil
+          ),
+          double(
+            interpretation: "not coercible to ForcedCompletion",
+            next_step: DSPy::NextStep::Finish
+          ),
+          double(
+            thought: "Still exploring",
+            action: 'echo_observation_tool',
+            tool_input: {},
+            final_answer: nil
+          )
+        )
+
+        expect {
+          agent.forward(query: "test")
+        }.to raise_error(DSPy::ReAct::MaxIterationsError) { |error|
+          expect(error.partial_final_answer).to eq("not coercible to ForcedCompletion")
+        }
+      end
+
+      it 'coerces JSON interpretation into structured output when forced-finish triggers' do
+        allow_any_instance_of(DSPy::Predict).to receive(:forward).and_return(
+          double(
+            thought: "Use tool",
+            action: 'echo_observation_tool',
+            tool_input: {},
+            final_answer: nil
+          ),
+          double(
+            interpretation: '{"answer":"ok"}',
+            next_step: DSPy::NextStep::Finish
+          ),
+          double(
+            thought: "Still exploring",
+            action: 'echo_observation_tool',
+            tool_input: {},
+            final_answer: nil
+          )
+        )
+
+        prediction = agent.forward(query: "test")
+        expect(prediction.result).to be_a(ForcedCompletion)
+        expect(prediction.result.answer).to eq("ok")
+      end
+    end
+
+    describe 'typed array output matching' do
+      class StringArraySignature < DSPy::Signature
+        description "Signature returning an array of strings"
+
+        input do
+          const :query, String
+        end
+
+        output do
+          const :items, T::Array[String]
+        end
+      end
+
+      let(:agent) { DSPy::ReAct.new(StringArraySignature, tools: [], max_iterations: 1) }
+
+      it 'accepts primitive string arrays without requiring struct elements' do
+        allow_any_instance_of(DSPy::Predict).to receive(:forward).and_return(
+          double(
+            thought: "Finish with list",
+            action: 'finish',
+            tool_input: nil,
+            final_answer: ['a', 'b']
+          )
+        )
+
+        prediction = agent.forward(query: "test")
+        expect(prediction.items).to eq(['a', 'b'])
+      end
+
+      it 'rejects arrays with invalid element types' do
+        allow_any_instance_of(DSPy::Predict).to receive(:forward).and_return(
+          double(
+            thought: "Finish with invalid list",
+            action: 'finish',
+            tool_input: nil,
+            final_answer: [{ 'a' => 1 }]
+          )
+        )
+
+        expect {
+          agent.forward(query: "test")
+        }.to raise_error(DSPy::ReAct::TypeMismatchError)
+      end
+    end
   end
 
 end
