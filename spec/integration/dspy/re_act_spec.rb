@@ -633,6 +633,114 @@ RSpec.describe DSPy::ReAct do
     end
   end
 
+  describe 'input_context type preservation' do
+    class InputContextScalarSignature < DSPy::Signature
+      description "Type preservation for scalar input"
+
+      input do
+        const :query, String
+      end
+
+      output do
+        const :answer, String
+      end
+    end
+
+    class InputContextAddress < T::Struct
+      const :city, String
+      const :country, String
+    end
+
+    class InputContextStructSignature < DSPy::Signature
+      description "Type preservation for struct input"
+
+      input do
+        const :address, InputContextAddress
+      end
+
+      output do
+        const :answer, String
+      end
+    end
+
+    class InputContextTodoItem < T::Struct
+      const :id, String
+      const :done, T::Boolean
+    end
+
+    class InputContextArrayStructSignature < DSPy::Signature
+      description "Type preservation for array of structs input"
+
+      input do
+        const :items, T::Array[InputContextTodoItem]
+      end
+
+      output do
+        const :answer, String
+      end
+    end
+
+    it 'preserves scalar input_context as the generated input struct type' do
+      agent = DSPy::ReAct.new(InputContextScalarSignature, tools: [], max_iterations: 1)
+      thought_generator = agent.instance_variable_get(:@thought_generator)
+      captured_input_context = nil
+
+      allow(thought_generator).to receive(:forward) do |**kwargs|
+        captured_input_context = kwargs[:input_context]
+        double(thought: "Done", action: 'finish', tool_input: nil, final_answer: "ok")
+      end
+
+      result = agent.forward(query: "Who is the mayor?")
+
+      expect(result.answer).to eq("ok")
+      expect(captured_input_context).to be_a(InputContextScalarSignature.input_struct_class)
+      expect(captured_input_context.query).to eq("Who is the mayor?")
+    end
+
+    it 'preserves struct input_context as nested T::Struct data' do
+      agent = DSPy::ReAct.new(InputContextStructSignature, tools: [], max_iterations: 1)
+      thought_generator = agent.instance_variable_get(:@thought_generator)
+      captured_input_context = nil
+
+      allow(thought_generator).to receive(:forward) do |**kwargs|
+        captured_input_context = kwargs[:input_context]
+        double(thought: "Done", action: 'finish', tool_input: nil, final_answer: "ok")
+      end
+
+      input_address = InputContextAddress.new(city: "San Sebastian de los Reyes", country: "ES")
+      result = agent.forward(address: input_address)
+
+      expect(result.answer).to eq("ok")
+      expect(captured_input_context).to be_a(InputContextStructSignature.input_struct_class)
+      expect(captured_input_context.address).to be_a(InputContextAddress)
+      expect(captured_input_context.address.city).to eq("San Sebastian de los Reyes")
+      expect(captured_input_context.address.country).to eq("ES")
+    end
+
+    it 'preserves array-of-structs input_context as typed array entries' do
+      agent = DSPy::ReAct.new(InputContextArrayStructSignature, tools: [], max_iterations: 1)
+      thought_generator = agent.instance_variable_get(:@thought_generator)
+      captured_input_context = nil
+
+      allow(thought_generator).to receive(:forward) do |**kwargs|
+        captured_input_context = kwargs[:input_context]
+        double(thought: "Done", action: 'finish', tool_input: nil, final_answer: "ok")
+      end
+
+      items = [
+        InputContextTodoItem.new(id: "1", done: false),
+        InputContextTodoItem.new(id: "2", done: true)
+      ]
+      result = agent.forward(items: items)
+
+      expect(result.answer).to eq("ok")
+      expect(captured_input_context).to be_a(InputContextArrayStructSignature.input_struct_class)
+      expect(captured_input_context.items).to all(be_a(InputContextTodoItem))
+      expect(captured_input_context.items.map(&:id)).to eq(%w[1 2])
+      expect(captured_input_context.items.map(&:done)).to eq([false, true])
+    end
+  end
+
   describe 'signature name tracking' do
     let(:date_tool) { SorbetGetTodaysDate.new }
     let(:add_tool) { SorbetAddNumbers.new }
@@ -955,7 +1063,10 @@ RSpec.describe DSPy::ReAct do
       let(:agent) { DSPy::ReAct.new(ForcedStructuredSignature, tools: tools, max_iterations: 3) }
 
       it 'raises MaxIterationsError (not TypeMismatchError) when forced-finish interpretation is not coercible' do
-        allow_any_instance_of(DSPy::Predict).to receive(:forward).and_return(
+        thought_generator = agent.instance_variable_get(:@thought_generator)
+        observation_processor = agent.instance_variable_get(:@observation_processor)
+
+        allow(thought_generator).to receive(:forward).and_return(
           double(
             thought: "Use tool",
             action: 'echo_observation_tool',
@@ -963,14 +1074,16 @@ RSpec.describe DSPy::ReAct do
             final_answer: nil
           ),
           double(
-            interpretation: "not coercible to ForcedCompletion",
-            next_step: DSPy::NextStep::Finish
-          ),
-          double(
             thought: "Still exploring",
             action: 'echo_observation_tool',
             tool_input: {},
             final_answer: nil
+          )
+        )
+        allow(observation_processor).to receive(:forward).and_return(
+          double(
+            interpretation: "not coercible to ForcedCompletion",
+            next_step: DSPy::NextStep::Finish
           )
         )
 
@@ -982,7 +1095,10 @@ RSpec.describe DSPy::ReAct do
       end
 
       it 'coerces JSON interpretation into structured output when forced-finish triggers' do
-        allow_any_instance_of(DSPy::Predict).to receive(:forward).and_return(
+        thought_generator = agent.instance_variable_get(:@thought_generator)
+        observation_processor = agent.instance_variable_get(:@observation_processor)
+
+        allow(thought_generator).to receive(:forward).and_return(
           double(
             thought: "Use tool",
             action: 'echo_observation_tool',
@@ -990,14 +1106,16 @@ RSpec.describe DSPy::ReAct do
             final_answer: nil
           ),
           double(
-            interpretation: '{"answer":"ok"}',
-            next_step: DSPy::NextStep::Finish
-          ),
-          double(
             thought: "Still exploring",
             action: 'echo_observation_tool',
             tool_input: {},
             final_answer: nil
+          )
+        )
+        allow(observation_processor).to receive(:forward).and_return(
+          double(
+            interpretation: '{"answer":"ok"}',
+            next_step: DSPy::NextStep::Finish
           )
         )
 

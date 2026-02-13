@@ -250,19 +250,17 @@ module DSPy
 
     sig { params(input_struct: T.untyped).returns(T.untyped) }
     def format_input_context(input_struct)
-      return input_struct if toon_data_format?
-
-      DSPy::TypeSerializer.serialize(input_struct).to_json
+      input_struct
     end
 
     sig { params(history: T::Array[HistoryEntry]).returns(T.untyped) }
     def format_history(history)
-      toon_data_format? ? history : serialize_history_for_llm(history)
+      history
     end
 
     sig { params(observation: T.untyped).returns(T.untyped) }
     def format_observation(observation)
-      toon_data_format? ? observation : serialize_for_llm(observation)
+      observation
     end
 
     sig { returns(T::Boolean) }
@@ -302,11 +300,7 @@ module DSPy
     sig { params(signature_class: T.class_of(DSPy::Signature), data_format: Symbol).returns(T.class_of(DSPy::Signature)) }
     def create_thought_signature(signature_class, data_format)
       action_enum_class = @action_enum_class
-      input_context_type = if data_format == :toon
-        signature_class.input_struct_class || String
-      else
-        String
-      end
+      input_context_type = signature_class.input_struct_class || String
 
       # Get the output field type for the final_answer field
       output_field_name = signature_class.output_struct_class.props.keys.first
@@ -320,7 +314,7 @@ module DSPy
         # Define input fields
         input do
           const :input_context, input_context_type,
-            description: data_format == :toon ? "All original input fields with their typed values" : "Serialized representation of all input fields"
+            description: "All original input fields with their typed values"
           const :history, T::Array[HistoryEntry],
             description: "Previous thoughts and actions, including observations from tools."
           const :available_tools, T::Array[AvailableTool],
@@ -344,11 +338,7 @@ module DSPy
     # Creates a dynamic observation signature that includes the original input fields
     sig { params(signature_class: T.class_of(DSPy::Signature), data_format: Symbol).returns(T.class_of(DSPy::Signature)) }
     def create_observation_signature(signature_class, data_format)
-      input_context_type = if data_format == :toon
-        signature_class.input_struct_class || String
-      else
-        String
-      end
+      input_context_type = signature_class.input_struct_class || String
       # Create new class that inherits from DSPy::Signature
       Class.new(DSPy::Signature) do
         # Set description
@@ -357,7 +347,7 @@ module DSPy
         # Define input fields
         input do
           const :input_context, input_context_type,
-            description: data_format == :toon ? "All original input fields with their typed values" : "Serialized representation of all input fields"
+            description: "All original input fields with their typed values"
           const :history, T::Array[HistoryEntry],
             description: "Previous thoughts, actions, and observations."
           const :observation, T.untyped,
