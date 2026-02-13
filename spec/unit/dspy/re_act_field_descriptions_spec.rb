@@ -54,7 +54,7 @@ RSpec.describe 'ReAct Field Descriptions', type: :unit do
       input_schema = thought_signature.input_json_schema
       input_context_description = input_schema.dig(:properties, :input_context, :description)
       expect(input_context_description).to be_a(String)
-      expect(input_context_description).to include('Serialized representation')
+      expect(input_context_description).to include('original input fields')
     end
     
     it 'includes description for history field' do
