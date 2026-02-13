@@ -224,6 +224,7 @@ RSpec.describe DSPy::Context do
         ).and_yield(mock_span)
 
         # Expect timing attributes to be set
+        expect(mock_span).to receive(:set_attribute).with('dspy.status', 'completed')
         expect(mock_span).to receive(:set_attribute).with('duration.ms', anything)
         expect(mock_span).to receive(:set_attribute).with('langfuse.observation.startTime', anything)
         expect(mock_span).to receive(:set_attribute).with('langfuse.observation.endTime', anything)
@@ -266,6 +267,7 @@ RSpec.describe DSPy::Context do
         expect(mock_span).to receive(:set_attribute).with('error', true)
         expect(mock_span).to receive(:set_attribute).with('error.type', 'RuntimeError')
         expect(mock_span).to receive(:set_attribute).with('error.message', 'test error')
+        expect(mock_span).to receive(:set_attribute).with('dspy.status', 'error')
         expect(mock_span).to receive(:set_attribute).with('duration.ms', anything)
         expect(mock_span).to receive(:set_attribute).with('langfuse.observation.startTime', anything)
         expect(mock_span).to receive(:set_attribute).with('langfuse.observation.endTime', anything)
@@ -291,6 +293,7 @@ RSpec.describe DSPy::Context do
         ).and_yield(mock_span)
 
         # Expect timing attributes to be set
+        expect(mock_span).to receive(:set_attribute).with('dspy.status', 'completed')
         expect(mock_span).to receive(:set_attribute).with('duration.ms', anything)
         expect(mock_span).to receive(:set_attribute).with('langfuse.observation.startTime', anything)
         expect(mock_span).to receive(:set_attribute).with('langfuse.observation.endTime', anything)

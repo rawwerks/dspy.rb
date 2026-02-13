@@ -289,13 +289,25 @@ module DSPy
             yield.tap do |result|
               if span && !result.nil?
                 span.set_attribute('langfuse.observation.output', serialize_module_output(result))
+                span.set_attribute('langfuse.observation.status', 'completed')
+                span.set_attribute('dspy.status', 'completed')
+                if root_call
+                  span.set_attribute('langfuse.trace.output', serialize_module_output(result))
+                  span.set_attribute('langfuse.trace.status', 'completed')
+                end
               end
             end
           rescue StandardError => e
             if span
               span.set_attribute('langfuse.observation.output', serialize_module_error_output(e))
+              span.set_attribute('langfuse.observation.status', 'error')
               span.set_attribute('dspy.error.class', e.class.name)
               span.set_attribute('dspy.error.message', e.message.to_s[0, 2000]) if e.message
+              span.set_attribute('dspy.status', 'error')
+              if root_call
+                span.set_attribute('langfuse.trace.output', serialize_module_error_output(e))
+                span.set_attribute('langfuse.trace.status', 'error')
+              end
               if e.respond_to?(:iterations)
                 span.set_attribute('dspy.error.iterations', e.iterations.to_i) unless e.iterations.nil?
               end

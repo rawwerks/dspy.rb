@@ -102,14 +102,17 @@ module DSPy
                 ) do |span|
                   # Add to our OpenTelemetry span stack
                   current[:otel_span_stack].push(span)
+                  succeeded = false
                   
                   begin
                     result = yield(span)
+                    succeeded = true
                     result
                   rescue StandardError => e
                     set_span_error_attributes(span, e)
                     raise
                   ensure
+                    set_span_status_attribute(span, succeeded)
                     set_span_timing_attributes(span, otel_start_time)
                     # Remove from our OpenTelemetry span stack
                     current[:otel_span_stack].pop
@@ -125,14 +128,17 @@ module DSPy
               ) do |span|
                 # Add to our OpenTelemetry span stack
                 current[:otel_span_stack].push(span)
+                succeeded = false
                 
                 begin
                   result = yield(span)
+                  succeeded = true
                   result
                 rescue StandardError => e
                   set_span_error_attributes(span, e)
                   raise
                 ensure
+                  set_span_status_attribute(span, succeeded)
                   set_span_timing_attributes(span, otel_start_time)
                   # Remove from our OpenTelemetry span stack
                   current[:otel_span_stack].pop
@@ -311,6 +317,14 @@ module DSPy
         span.set_attribute('error', true)
         span.set_attribute('error.type', error.class.name)
         span.set_attribute('error.message', error.message.to_s[0, 2000]) if error.message
+      rescue StandardError
+        nil
+      end
+
+      def set_span_status_attribute(span, succeeded)
+        return unless span
+
+        span.set_attribute('dspy.status', succeeded ? 'completed' : 'error')
       rescue StandardError
         nil
       end

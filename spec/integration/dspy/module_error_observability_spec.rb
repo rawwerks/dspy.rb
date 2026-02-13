@@ -42,8 +42,15 @@ RSpec.describe 'Module error observability instrumentation' do
       'langfuse.observation.output',
       include('\"error\"')
     )
+    expect(mock_span).to receive(:set_attribute).with('langfuse.observation.status', 'error')
     expect(mock_span).to receive(:set_attribute).with('dspy.error.class', 'RuntimeError')
     expect(mock_span).to receive(:set_attribute).with('dspy.error.message', 'boom')
+    expect(mock_span).to receive(:set_attribute).with('dspy.status', 'error')
+    expect(mock_span).to receive(:set_attribute).with(
+      'langfuse.trace.output',
+      include('\"error\"')
+    )
+    expect(mock_span).to receive(:set_attribute).with('langfuse.trace.status', 'error')
 
     expect do
       FailingModuleForObservability.new.forward(query: "x")
