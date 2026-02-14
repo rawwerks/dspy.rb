@@ -1,24 +1,28 @@
 # frozen_string_literal: true
-
 require_relative 'module'
 require_relative 'predict'
 require_relative 'code_interpreter'
 require_relative 'repl_types'
-require_relative 'rlm/instructions'
-require_relative 'rlm/signatures'
-require_relative 'interpreters/ruby_repl'
-require_relative 'interpreters/mock_repl'
 require_relative 'mixins/type_coercion'
-
 module DSPy
   class RLM < DSPy::Module
-    attr_reader :generate_action, :extract
+    # NOTE: These require_relative calls must be AFTER the class definition
+    # so that DSPy::RLM is already defined with the correct superclass.
+    # The sub-files reopen `class RLM` without specifying a superclass.
+    require_relative 'rlm/instructions'
+    require_relative 'rlm/signatures'
+    require_relative 'interpreters/ruby_repl'
+    require_relative 'interpreters/mock_repl'
+
+    include DSPy::Mixins::TypeCoercion
+    attr_reader :generate_action, :extract, :iteration_count, :llm_call_count
 
     def initialize(
       signature_class,
       max_iterations: 20,
       max_llm_calls: 50,
       max_output_chars: 10_000,
+      timeout: nil,
       verbose: false,
       tools: [],
       sub_lm: nil,
@@ -32,6 +36,10 @@ module DSPy
       @sub_lm = sub_lm
       @user_interpreter = interpreter
       @user_tools = normalize_tools(tools)
+      @timeout = timeout
+      @iteration_count = 0
+      @llm_call_count = 0
+      @start_time = nil
 
       # Build the two internal predictors
       action_sig = Signatures.build_action_signature(
@@ -44,10 +52,11 @@ module DSPy
     end
 
     def forward(**input_args)
-      output_field_names = @signature_class.output_field_descriptors.keys.map(&:to_s)
+      @start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      @iteration_count = 0
+      @llm_call_count = 0
       variables = build_variables(**input_args)
       execution_tools = make_llm_tools.merge(@user_tools)
-
       interpreter = @user_interpreter || Interpreters::RubyREPL.new(
         tools: execution_tools,
         output_fields: output_field_names
@@ -57,20 +66,18 @@ module DSPy
         interpreter.start
         # Inject input variables once
         interpreter.execute("nil", variables: input_args) rescue nil
-
         history = REPLHistory.new(max_output_chars: @max_output_chars)
-
         @max_iterations.times do |i|
+          check_timeout!
+          @iteration_count = i + 1
           result = execute_iteration(interpreter, variables, history, i, output_field_names)
-
           if result.is_a?(DSPy::Prediction)
             return result
           end
-
           history = result # updated REPLHistory
         end
 
-        # Max iterations reached — use extract fallback
+        # Max iterations reached - use extract fallback
         log("Max iterations reached, using extract fallback") if @verbose
         extract_fallback(variables, history, output_field_names)
       ensure
@@ -87,6 +94,19 @@ module DSPy
     end
 
     private
+
+    def check_timeout!
+      return unless @timeout && @start_time
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - @start_time
+      if elapsed > @timeout
+        raise CodeInterpreterError, "RLM timeout: #{elapsed.round(1)}s exceeded #{@timeout}s limit"
+      end
+    end
+
+    def elapsed_time
+      return 0 unless @start_time
+      Process.clock_gettime(Process::CLOCK_MONOTONIC) - @start_time
+    end
 
     def execute_iteration(interpreter, variables, history, iteration, output_field_names)
       variables_info = variables.map(&:format).join("\n\n")
@@ -156,10 +176,10 @@ module DSPy
       parsed = {}
       type_errors = []
       output_field_names.each do |name|
-        descriptor = @signature_class.output_field_descriptors[name]
+        descriptor = @signature_class.output_field_descriptors[name.to_sym] || @signature_class.output_field_descriptors[name.to_s]
         value = raw_str[name]
         begin
-          coerced = DSPy::Mixins::TypeCoercion.coerce_value_to_type(value, descriptor.type)
+          coerced = coerce_value_to_type(value, descriptor.type)
           parsed[name.to_sym] = coerced
         rescue StandardError => e
           type_errors << "#{name}: expected #{descriptor.type}, got #{value.class} — #{e.message}"
@@ -193,7 +213,7 @@ module DSPy
 
     def build_variables(**input_args)
       input_args.map do |name, value|
-        field_info = @signature_class.input_field_descriptors[name.to_s]
+        field_info = @signature_class.input_field_descriptors[name.to_sym] || @signature_class.input_field_descriptors[name.to_s]
         REPLVariable.from_value(name, value, field_info: field_info)
       end
     end
