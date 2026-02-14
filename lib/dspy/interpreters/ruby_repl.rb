@@ -62,6 +62,8 @@ module DSPy
         @binding = nil
         @started = false
         @final_output = nil
+        # Clean up sandbox require pollution (TOPLEVEL_BINDING.dup leaks to Object)
+        Object.send(:remove_method, :require) if Object.instance_methods(false).include?(:require)
       end
 
       private
