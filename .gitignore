@@ -33,3 +33,6 @@ notes/
 .bundle/
 vendor/bundle
 lib/bundler/man/
+
+# bv (beads viewer) local config and caches
+.bv/
