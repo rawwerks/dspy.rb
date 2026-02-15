@@ -11,6 +11,7 @@ module DSPy
     # The sub-files reopen `class RLM` without specifying a superclass.
     require_relative 'rlm/instructions'
     require_relative 'rlm/signatures'
+    require_relative 'rlm/file_tools'
     require_relative 'interpreters/ruby_repl'
     require_relative 'interpreters/mock_repl'
 
@@ -36,6 +37,7 @@ module DSPy
       @sub_lm = sub_lm
       @user_interpreter = interpreter
       @user_tools = normalize_tools(tools)
+      @tool_descriptions = extract_tool_descriptions(tools)
       @timeout = timeout
       @iteration_count = 0
       @llm_call_count = 0
@@ -97,6 +99,14 @@ module DSPy
 
     private
 
+    STUCK_THRESHOLD = 3
+
+    def stuck?(code, history)
+      return false if history.size < STUCK_THRESHOLD
+      recent = history.entries.last(STUCK_THRESHOLD).map { |e| e.code.strip }
+      recent.all? { |c| c == code.strip }
+    end
+
     def check_timeout!
       return unless @timeout && @start_time
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - @start_time
@@ -123,8 +133,17 @@ module DSPy
       )
 
       code = action.code
-      log("Code:\n#{code}") if @verbose
+      # Stuck detection: if code is identical to last N entries, inject a hint
+      if stuck?(code, history)
+        stuck_msg = "[STUCK] You have written nearly identical code #{STUCK_THRESHOLD} times. " \
+          "The same approach keeps failing. Try a COMPLETELY different strategy: " \
+          "examine your intermediate values with puts/p, simplify your approach, " \
+          "or break the problem into smaller steps."
+        log("STUCK DETECTED — injecting hint") if @verbose
+        return history.append(reasoning: "", code: code, output: stuck_msg)
+      end
 
+      log("Code:\n#{code}") if @verbose
       # 2. Execute in interpreter
       begin
         result = interpreter.execute(code)
@@ -132,7 +151,7 @@ module DSPy
         result = "[Error] #{e.message}"
       end
 
-      log("Output: #{result.is_a?(FinalOutput) ? 'FINAL' : result.to_s[0, 200]}") if @verbose
+      log("Output: #{result.is_a?(FinalOutput) ? 'FINAL' : result.to_s[0, 2000]}") if @verbose
 
       # 3. Process result
       process_execution_result(action, result, history, output_field_names, code)
@@ -257,8 +276,45 @@ module DSPy
       end
     end
 
+    def extract_tool_descriptions(tools)
+      case tools
+      when Hash
+        source = tools.values.first
+        owner = source.is_a?(Method) ? source.receiver : nil
+        owner.respond_to?(:tool_descriptions) ? owner.tool_descriptions : {}
+      else
+        {}
+      end
+    end
     def format_tool_docs
-      @user_tools.map { |name, _| "- `#{name}(...)` — user-provided tool" }.join("\n")
+      @user_tools.map do |name, callable|
+        if @tool_descriptions&.key?(name)
+          "- #{@tool_descriptions[name]}"
+        else
+          params = extract_params(callable)
+          "- `#{name}(#{params})` \u2014 user-provided tool"
+        end
+      end.join("\n")
+    end
+
+    def extract_params(callable)
+      method_obj = case callable
+      when Method, UnboundMethod then callable
+      when Proc then callable
+      else return "..."
+      end
+      method_obj.parameters.map do |type, pname|
+        case type
+        when :req then pname.to_s
+        when :opt then "#{pname}=..."
+        when :keyreq then "#{pname}:"
+        when :key then "#{pname}: ..."
+        when :rest then "*#{pname}"
+        when :keyrest then "**#{pname}"
+        when :block then "&#{pname}"
+        else pname.to_s
+        end
+      end.join(", ")
     end
 
     def log(msg)
