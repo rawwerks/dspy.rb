@@ -44,6 +44,7 @@ module DSPy
         @final_output = nil
 
         code = strip_code_fences(code)
+        check_requires(code)
         stdout, result, error = capture_execution(code)
 
         return FinalOutput.new(@final_output) if @final_output
@@ -62,29 +63,19 @@ module DSPy
         @binding = nil
         @started = false
         @final_output = nil
-        # Clean up sandbox require pollution (TOPLEVEL_BINDING.dup leaks to Object)
-        Object.send(:remove_method, :require) if Object.instance_methods(false).include?(:require)
       end
 
       private
 
-      def create_sandbox_binding
-        b = TOPLEVEL_BINDING.dup
-
-        # Inject safe require wrapper
-        allowed = ALLOWED_REQUIRES
-        allowed_list = allowed
-        b.eval(<<~'RUBY', "(rlm-setup)", 1)
-          def require(name)
-            allowed = %w[json set date time uri ostruct digest base64 csv pathname tempfile fileutils stringio strscan net/http net/https open-uri]
-            unless allowed.include?(name.to_s)
-              raise "require '\#{name}' is not allowed in the sandbox. Allowed: \#{allowed.join(', ')}"
-            end
-            Kernel.require(name)
+      def check_requires(code)
+        code.scan(/^\s*require\s+['"]([^'"]+)['"]/).flatten.each do |lib|
+          unless ALLOWED_REQUIRES.include?(lib)
+            raise CodeInterpreterError, "require '#{lib}' is not allowed. Allowed: #{ALLOWED_REQUIRES.join(', ')}"
           end
-        RUBY
-
-        b
+        end
+      end
+      def create_sandbox_binding
+        TOPLEVEL_BINDING.dup
       end
 
       def register_submit
