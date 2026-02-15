@@ -236,9 +236,9 @@ module DSPy
         end
         target_lm = lm || DSPy.config.lm
         raise "No LM configured for llm_query" unless target_lm
-        messages = [DSPy::LM::Message.new(role: 'user', content: prompt.to_s)]
+        messages = [DSPy::LM::Message.new(role: DSPy::LM::Message::Role::User, content: prompt.to_s)]
         response = target_lm.adapter.chat(messages: messages)
-        response.text
+        response.content
       end
 
       { "llm_query" => llm_query }
