@@ -55,6 +55,8 @@ module DSPy
       @start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       @iteration_count = 0
       @llm_call_count = 0
+
+      output_field_names = @signature_class.output_field_descriptors.keys.map(&:to_s)
       variables = build_variables(**input_args)
       execution_tools = make_llm_tools.merge(@user_tools)
       interpreter = @user_interpreter || Interpreters::RubyREPL.new(
@@ -234,7 +236,8 @@ module DSPy
         end
         target_lm = lm || DSPy.config.lm
         raise "No LM configured for llm_query" unless target_lm
-        response = target_lm.chat(prompt: prompt)
+        messages = [DSPy::LM::Message.new(role: 'user', content: prompt.to_s)]
+        response = target_lm.adapter.chat(messages: messages)
         response.text
       end
 

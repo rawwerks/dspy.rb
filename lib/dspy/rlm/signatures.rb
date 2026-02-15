@@ -47,13 +47,6 @@ module DSPy
         instructions = Instructions.build_extract_instructions(user_signature)
         output_descriptors = user_signature.output_field_descriptors
 
-        # Build output struct matching user's output fields
-        output_struct = Class.new(T::Struct) do
-          output_descriptors.each do |field_name, fd|
-            const field_name.to_sym, fd.type, description: fd.description
-          end
-        end
-
         Class.new(DSPy::Signature) do
           description instructions
 
@@ -64,12 +57,14 @@ module DSPy
               description: "Full REPL interaction history"
           end
 
-          @output_struct_class = output_struct
-          @input_struct_class = nil # will be set by Signature internals
+          # Build output matching user's output fields
+          output do
+            output_descriptors.each do |field_name, fd|
+              const field_name.to_sym, fd.type, description: fd.description
+            end
+          end
 
           class << self
-            attr_reader :output_struct_class
-
             def name
               "RLM::ExtractSignature"
             end

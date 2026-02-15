@@ -93,9 +93,16 @@ module DSPy
         output_fields = @output_fields
 
         @binding.eval(<<~RUBY, "(rlm-submit)", 1)
-          define_method(:SUBMIT) do |**kwargs|
+          define_method(:SUBMIT) do |*args, **kwargs|
+            fields = #{output_fields.inspect}
+            # Handle positional arg when there's exactly one output field
+            if args.length == 1 && kwargs.empty? && fields.length == 1
+              kwargs = { fields.first.to_sym => args.first }
+            elsif args.length > 0 && kwargs.empty?
+              raise "SUBMIT takes keyword arguments: SUBMIT(#{output_fields.join(': ..., ')}: ...)"
+            end
             # Validate required fields
-            missing = #{output_fields.inspect} - kwargs.keys.map(&:to_s)
+            missing = fields - kwargs.keys.map(&:to_s)
             unless missing.empty?
               raise "SUBMIT missing required fields: \#{missing.join(', ')}. Expected: SUBMIT(#{output_fields.join(': ..., ')}: ...)"
             end
@@ -111,7 +118,11 @@ module DSPy
           @binding.local_variable_set(:"__tool_#{name}", callable)
           @binding.eval(<<~RUBY, "(rlm-tool-#{name})", 1)
             define_method(:#{name}) do |*args, **kwargs, &block|
-              __tool_#{name}.call(*args, **kwargs, &block)
+              if kwargs.empty?
+                __tool_#{name}.call(*args, &block)
+              else
+                __tool_#{name}.call(*args, **kwargs, &block)
+              end
             end
           RUBY
         end
